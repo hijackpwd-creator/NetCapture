@@ -63,21 +63,40 @@ jobs:
           DEB="$(find packages -maxdepth 1 -name '*.deb' -type f | head -n 1)"
           test -n "$DEB"
           echo "Built: $DEB"
+
           rm -rf package-inspect
           mkdir -p package-inspect/control package-inspect/data
           cd package-inspect
+
+          echo "Debian archive members:"
+          ar -t "../$DEB"
           ar -x "../$DEB"
-          test -f control.tar.xz
-          test -f data.tar.xz
-          tar -xJf control.tar.xz -C control
-          tar -xJf data.tar.xz -C data
+
+          CONTROL_TAR="$(find . -maxdepth 1 -type f -name 'control.tar.*' | head -n 1)"
+          DATA_TAR="$(find . -maxdepth 1 -type f -name 'data.tar.*' | head -n 1)"
+          test -n "$CONTROL_TAR"
+          test -n "$DATA_TAR"
+          echo "Control archive: $CONTROL_TAR"
+          echo "Data archive: $DATA_TAR"
+
+          # macOS bsdtar/libarchive auto-detects gzip/xz/bzip2/zstd by content.
+          tar -xf "$CONTROL_TAR" -C control
+          tar -xf "$DATA_TAR" -C data
+
           grep -qx 'Architecture: iphoneos-arm64' control/control
           find data -type f | sort | tee ../package-contents.txt
           find data -type f -name 'NetCapture.dylib' | grep -q .
           find data -type f -name 'netcaptured' | grep -q .
           find data -type f -name 'com.netcapture.daemon.plist' | grep -q .
-          file "$(find data -type f -name 'NetCapture.dylib' | head -n 1)"
-          file "$(find data -type f -name 'netcaptured' | head -n 1)"
+
+          TWEAK="$(find data -type f -name 'NetCapture.dylib' | head -n 1)"
+          DAEMON="$(find data -type f -name 'netcaptured' | head -n 1)"
+          test -n "$TWEAK"
+          test -n "$DAEMON"
+          file "$TWEAK"
+          file "$DAEMON"
+          lipo -info "$TWEAK" || true
+          lipo -info "$DAEMON" || true
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
