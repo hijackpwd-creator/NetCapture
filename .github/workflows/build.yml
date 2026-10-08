@@ -9,53 +9,33 @@ on:
         default: "com.example.NetCaptureTest"
   push:
     branches: [ "main", "master" ]
+  pull_request:
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-14
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show runner info
+      - name: Install build dependencies
         run: |
-          uname -a
-          sw_vers
-          xcodebuild -version
-          clang --version | head -n 1
-          make --version | head -n 1 || true
-          brew --version | head -n 1
-
-      - name: Install minimal Theos dependencies
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-        run: |
-          set -euxo pipefail
           brew install ldid xz
-          command -v ldid
-          ldid -h >/dev/null 2>&1 || true
 
       - name: Install Theos
         run: |
-          set -euxo pipefail
           git clone --recursive --depth 1 https://github.com/theos/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
           echo "$HOME/theos/bin" >> "$GITHUB_PATH"
-          mkdir -p "$HOME/.config/theos"
-          echo 'THEOS_IGNORE_PARALLEL_BUILDING_NOTICE = yes' >> "$HOME/.config/theos/rc.mk"
 
       - name: Configure target bundle
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           TARGET_BUNDLE: ${{ inputs.bundle_id }}
         run: |
-          set -euxo pipefail
           python3 Scripts/set_bundle_id.py "$TARGET_BUNDLE"
-          echo "Target bundle: $TARGET_BUNDLE"
-          cat NetCapture.plist
 
       - name: Preflight
         run: |
@@ -63,52 +43,49 @@ jobs:
           test -f Makefile
           test -f control
           test -f NetCapture.plist
-          test -f Packaging/com.netcapture.daemon.plist
           test -f "$THEOS/vendor/include/substrate.h"
           find "$THEOS/vendor/lib" -name 'libsubstrate.tbd' -print -quit | grep -q .
           /usr/libexec/PlistBuddy -c Print Packaging/com.netcapture.daemon.plist >/dev/null
-          echo "THEOS=$THEOS"
+          xcodebuild -version
+          clang --version | head -n 1
+          make --version | head -n 1
 
       - name: Build rootless package
         run: |
-          set -o pipefail
+          set -euxo pipefail
           make clean
-          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes 2>&1 | tee build.log
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes
 
-      - name: Verify build output
+      - name: Inspect package
         run: |
           set -euxo pipefail
           ls -lah packages
           DEB="$(find packages -maxdepth 1 -name '*.deb' -type f | head -n 1)"
           test -n "$DEB"
-          test -s "$DEB"
-          echo "Built package: $DEB"
-          echo "Deb archive members:"
-          ar -t "$DEB"
+          echo "Built: $DEB"
+          rm -rf package-inspect
+          mkdir -p package-inspect/control package-inspect/data
+          cd package-inspect
+          ar -x "../$DEB"
+          test -f control.tar.xz
+          test -f data.tar.xz
+          tar -xJf control.tar.xz -C control
+          tar -xJf data.tar.xz -C data
+          grep -qx 'Architecture: iphoneos-arm64' control/control
+          find data -type f | sort | tee ../package-contents.txt
+          find data -type f -name 'NetCapture.dylib' | grep -q .
+          find data -type f -name 'netcaptured' | grep -q .
+          find data -type f -name 'com.netcapture.daemon.plist' | grep -q .
+          file "$(find data -type f -name 'NetCapture.dylib' | head -n 1)"
+          file "$(find data -type f -name 'netcaptured' | head -n 1)"
 
-          # Verify staged Mach-O files before packaging.
-          DYLIB="$(find .theos/_ -name 'NetCapture.dylib' -type f | head -n 1)"
-          DAEMON="$(find .theos/_ -name 'netcaptured' -type f | head -n 1)"
-          test -n "$DYLIB"
-          test -n "$DAEMON"
-          file "$DYLIB"
-          file "$DAEMON"
-          lipo -info "$DYLIB" || true
-          lipo -info "$DAEMON" || true
-
-          find .theos/_ -type f | sort | tee staged-files.txt
-          grep -q 'NetCapture.dylib' staged-files.txt
-          grep -q 'netcaptured' staged-files.txt
-          grep -q 'com.netcapture.daemon.plist' staged-files.txt
-
-      - name: Upload deb and logs
-        if: always()
+      - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
-          name: NetCapture-rootless-build
+          name: NetCapture-rootless-deb
           path: |
             packages/*.deb
-            build.log
-            staged-files.txt
-          if-no-files-found: warn
+            package-contents.txt
+            AUDIT.md
+          if-no-files-found: error
           retention-days: 14
