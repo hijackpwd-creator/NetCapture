@@ -1,0 +1,9 @@
+{
+  "files": 36,
+  "makefile_source_refs": 20,
+  "missing_makefile_sources": [],
+  "launchd_plist_valid": true,
+  "gross_source_issues": [],
+  "ios_sdk_compile_performed": false,
+  "reason_no_ios_compile": "Container has no Apple iOS SDK/Theos/ElleKit target environment."
+}

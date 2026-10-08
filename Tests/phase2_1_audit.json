@@ -1,0 +1,11 @@
+{
+  "source_files_referenced": 20,
+  "missing_sources": [],
+  "rootless_scheme": true,
+  "daemon_mobile": true,
+  "launch_path_rootless": true,
+  "oversized_body_chunking": true,
+  "sqlite_no_replace": true,
+  "ipc_partial_send": true,
+  "ancestor_hook_guard": true
+}
