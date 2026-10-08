@@ -133,7 +133,7 @@
     os_unfair_lock_unlock(&_lock);
 }
 
-static NCFailureCategory NCFailureCategoryForError(NSError *error) {
+static NCFailureCategory NCFailureCategoryForError(NSError * _Nullable error) {
     if (!error) return NCFailureNone;
     if (![error.domain isEqualToString:NSURLErrorDomain]) return NCFailureUnknown;
 
@@ -156,7 +156,7 @@ static NCFailureCategory NCFailureCategoryForError(NSError *error) {
     }
 }
 
-static NSString *NCTerminationReasonForError(NSError *error) {
+static NSString *NCTerminationReasonForError(NSError * _Nullable error) {
     switch (NCFailureCategoryForError(error)) {
         case NCFailureNone: return @"normal";
         case NCFailureCancelled: return @"cancelled";
@@ -170,9 +170,9 @@ static NSString *NCTerminationReasonForError(NSError *error) {
 }
 
 - (void)task:(NSURLSessionTask *)task
- completionData:(NSData *)data
-       response:(NSURLResponse *)response
-          error:(NSError *)error {
+ completionData:(NSData * _Nullable)data
+       response:(NSURLResponse * _Nullable)response
+          error:(NSError * _Nullable)error {
     if (!task) return;
 
     NCClientRecord *record = nil;

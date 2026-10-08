@@ -57,3 +57,7 @@ Delegate callbacks, redirects, `NSURLSessionTaskMetrics`, download temporary-fil
 4. Run a small GET, POST with body, 404, timeout and cancel case in the selected test app.
 5. Confirm `capture.sqlite3` contains one transaction per completion request and request/response body files match observed sizes up to the configured cap.
 6. Kill `netcaptured` and confirm the target app continues networking normally.
+
+## 0.2.3 Xcode 26 nullability audit
+
+All public Objective-C headers that import Foundation are now wrapped in `NS_ASSUME_NONNULL_BEGIN/END`. APIs that can legitimately be nil are explicitly annotated (`nullable` / `_Nullable`), including completion payloads, error objects, optional error-out parameters, session IDs/body paths, close handlers, and nullable original IMP lookups. Matching implementation signatures were updated where useful to avoid header/implementation drift under Xcode 26 diagnostics.

@@ -1,6 +1,8 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 typedef NS_ENUM(NSUInteger, NCCaptureSource) {
     NCCaptureSourceUnknown = 0,
     NCCaptureSourceCFNetwork = 50,
@@ -25,3 +27,5 @@ typedef NS_ENUM(NSUInteger, NCHeaderFidelity) {
     NCHeaderFidelityMultiValue,
     NCHeaderFidelityWireLike,
 };
+
+NS_ASSUME_NONNULL_END

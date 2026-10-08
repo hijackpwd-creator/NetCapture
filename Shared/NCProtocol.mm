@@ -14,11 +14,11 @@ static uint64_t NCNetworkToHost64(uint64_t value) {
     return NCHostToNetwork64(value);
 }
 
-NSData *NCBuildFrameV2(NCMessageType type,
+NSData * _Nullable NCBuildFrameV2(NCMessageType type,
                        uint64_t sequence,
                        NSDictionary *metadata,
                        NSData *payload,
-                       NSError **error) {
+                       NSError * _Nullable * _Nullable error) {
     NSDictionary *safeMetadata = metadata ?: @{};
     if (![NSJSONSerialization isValidJSONObject:safeMetadata]) return nil;
 
@@ -73,7 +73,7 @@ BOOL NCDecodeWireHeaderV2(const void *bytes,
     return YES;
 }
 
-NSDictionary *NCDecodeMetadataV2(const uint8_t *bytes, NSUInteger length, NSError **error) {
+NSDictionary * _Nullable NCDecodeMetadataV2(const uint8_t *bytes, NSUInteger length, NSError * _Nullable * _Nullable error) {
     if (!bytes && length != 0) return nil;
     NSData *data = [NSData dataWithBytes:bytes length:length];
     id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:error];

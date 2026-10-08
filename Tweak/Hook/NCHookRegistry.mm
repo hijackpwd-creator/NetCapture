@@ -109,7 +109,7 @@ static BOOL NCClassOwnsSelector(Class cls, SEL selector) {
     return success;
 }
 
-- (IMP)originalIMPForObject:(id)object selector:(SEL)selector {
+- (IMP _Nullable)originalIMPForObject:(id)object selector:(SEL)selector {
     if (!object || !selector) return NULL;
 
     IMP result = NULL;

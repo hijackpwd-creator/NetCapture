@@ -1,6 +1,8 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 @interface NCCaptureManager : NSObject
 + (instancetype)shared;
 - (void)observeCreatedTask:(NSURLSessionTask *)task request:(NSURLRequest *)request;
@@ -11,3 +13,5 @@
        response:(NSURLResponse * _Nullable)response
           error:(NSError * _Nullable)error;
 @end
+
+NS_ASSUME_NONNULL_END

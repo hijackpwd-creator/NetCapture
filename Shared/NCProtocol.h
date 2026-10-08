@@ -31,6 +31,24 @@ typedef struct __attribute__((packed)) {
     uint64_t sequence;
 } NCWireHeaderV2;
 
-NSData * _Nullable NCBuildFrameV2(NCMessageType type, uint64_t sequence, NSDictionary *metadata, NSData * _Nullable payload, NSError **error);
-BOOL NCDecodeWireHeaderV2(const void *bytes, NSUInteger length, NCWireHeaderV2 *headerOut, uint64_t *frameLengthOut);
-NSDictionary * _Nullable NCDecodeMetadataV2(const uint8_t *bytes, NSUInteger length, NSError **error);
+NS_ASSUME_NONNULL_BEGIN
+
+NSData * _Nullable NCBuildFrameV2(
+    NCMessageType type,
+    uint64_t sequence,
+    NSDictionary *metadata,
+    NSData * _Nullable payload,
+    NSError * _Nullable * _Nullable error);
+
+BOOL NCDecodeWireHeaderV2(
+    const void *bytes,
+    NSUInteger length,
+    NCWireHeaderV2 *headerOut,
+    uint64_t *frameLengthOut);
+
+NSDictionary * _Nullable NCDecodeMetadataV2(
+    const uint8_t *bytes,
+    NSUInteger length,
+    NSError * _Nullable * _Nullable error);
+
+NS_ASSUME_NONNULL_END

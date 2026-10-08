@@ -3,6 +3,8 @@
 #include <sys/types.h>
 #import "../../Shared/NCModels.h"
 
+NS_ASSUME_NONNULL_BEGIN
+
 @interface NCServerBodyState : NSObject
 @property(nonatomic, assign) uint64_t expectedOffset;
 @property(nonatomic, assign) uint64_t receivedBytes;
@@ -54,3 +56,5 @@
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NCServerHop *> *hops;
 @property(nonatomic, strong) NSMutableArray<NSString *> *hopOrder;
 @end
+
+NS_ASSUME_NONNULL_END

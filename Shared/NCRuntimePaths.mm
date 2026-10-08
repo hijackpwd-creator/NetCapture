@@ -9,7 +9,7 @@
 + (NSString *)runtimeDirectory { return [[self baseDirectory] stringByAppendingPathComponent:@"Runtime"]; }
 + (NSString *)socketPath { return [[self runtimeDirectory] stringByAppendingPathComponent:@"ncap.sock"]; }
 
-+ (BOOL)prepareDirectories:(NSError **)error {
++ (BOOL)prepareDirectories:(NSError * _Nullable * _Nullable)error {
     NSFileManager *fm = NSFileManager.defaultManager;
     for (NSString *path in @[[self baseDirectory], [self bodiesDirectory], [self runtimeDirectory]]) {
         if (![fm createDirectoryAtPath:path
