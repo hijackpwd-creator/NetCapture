@@ -1,0 +1,79 @@
+name: Build NetCapture rootless deb
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "Target app bundle ID to inject into"
+        required: true
+        default: "com.example.NetCaptureTest"
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          brew update
+          brew install ldid xz dpkg make
+
+      - name: Install Theos
+        run: |
+          git clone --recursive --depth 1 https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          echo "$HOME/theos/bin" >> "$GITHUB_PATH"
+
+      - name: Configure target bundle
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          TARGET_BUNDLE: ${{ inputs.bundle_id }}
+        run: |
+          python3 Scripts/set_bundle_id.py "$TARGET_BUNDLE"
+
+      - name: Preflight
+        run: |
+          test -f "$THEOS/vendor/include/substrate.h"
+          find "$THEOS/vendor/lib" -name 'libsubstrate.tbd' -print -quit | grep -q .
+          test -f Makefile
+          test -f control
+          test -f NetCapture.plist
+          /usr/libexec/PlistBuddy -c Print Packaging/com.netcapture.daemon.plist >/dev/null
+          echo "Theos: $THEOS"
+          xcodebuild -version
+          clang --version | head -n 1
+
+      - name: Build rootless package
+        run: |
+          gmake clean
+          gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless messages=yes
+
+      - name: Inspect package
+        run: |
+          ls -lah packages
+          DEB="$(find packages -maxdepth 1 -name '*.deb' -type f | head -n 1)"
+          test -n "$DEB"
+          echo "Built: $DEB"
+          dpkg-deb -I "$DEB"
+          dpkg-deb -c "$DEB" | tee package-contents.txt
+          test "$(dpkg-deb -f "$DEB" Architecture)" = "iphoneos-arm64"
+          dpkg-deb -c "$DEB" | grep -q 'netcaptured'
+          dpkg-deb -c "$DEB" | grep -q 'NetCapture.dylib'
+          dpkg-deb -c "$DEB" | grep -q 'com.netcapture.daemon.plist'
+
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetCapture-rootless-deb
+          path: |
+            packages/*.deb
+            package-contents.txt
+          if-no-files-found: error
+          retention-days: 14
