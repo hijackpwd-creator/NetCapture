@@ -1,76 +1,71 @@
-# NetCapture Phase 2
+# NetCapture 0.2.2 — audited Phase 2 baseline
 
-Phase-2 engineering baseline for a local, authorized iOS NSURLSession capture/logger using ElleKit-compatible Substrate hooks.
+Local, authorized iOS NSURLSession capture/logger using ElleKit's Substrate-compatible runtime API. This revision is deliberately scoped to a stable completion-handler MVP before expanding hook coverage.
 
-## What is wired
+## Compiled coverage
 
-- Theos tweak + launch daemon targets.
-- Protocol v2 framing over local AF_UNIX.
-- Daemon accept/parser/assembler.
-- SQLite WAL persistence.
-- Response body files with a 32 MiB per-body storage cap.
-- `NSURLSession dataTaskWithRequest:completionHandler:` creation/completion capture.
-- `NSURLSessionTask -resume` observation.
-- Raw request/response headers and bodies (no redaction).
-- Fail-open capture path: capture errors are not allowed to change app callbacks.
+- Theos rootless tweak + `netcaptured` launch daemon.
+- Protocol v2 over local AF_UNIX with bounded client queue and partial-send handling.
+- Strict HELLO/message parsing and per-client resource caps.
+- `NSURLSession dataTaskWithRequest:completionHandler:` and `dataTaskWithURL:completionHandler:`.
+- Runtime session-class installation via `sessionWithConfiguration:` factories.
+- `NSURLSessionTask -resume` and `-cancel` observation.
+- Raw request/response headers and bodies; **no redaction**.
+- Request and response body files with a 32 MiB storage cap per direction.
+- SQLite WAL persistence with request/response body metadata.
+- Fail-open capture behavior: capture exceptions do not alter application callbacks.
 
-## Deliberately deferred
+See `AUDIT.md` for the complete audit and remaining device-only risks.
 
-This package is the compile-focused Phase-2 baseline, not the final coverage build. Delegate interception, redirects, metrics, download temp-file capture, streamed request-body proxy, CFNetwork and NSURLConnection are kept out of the compiled target until this baseline is device-validated. The architecture from Phase 1 remains compatible with adding them afterward.
+## Not claimed yet
 
-## Build
+Delegate interception, redirects, TaskMetrics, download temp-file capture, streamed body proxy/retries, upload-task-specific paths, NSURLConnection, CFNetwork/dedup, viewer and HAR export remain deferred until this baseline is device-validated.
 
-```sh
-export THEOS=/path/to/theos
-make clean package FINALPACKAGE=1
+## GitHub Actions build
+
+The repository contains `.github/workflows/build.yml`.
+
+1. Upload the repository contents to GitHub.
+2. Open **Actions → Build NetCapture rootless deb → Run workflow**.
+3. Enter the target test application's Bundle ID.
+4. Download the `NetCapture-rootless-deb` artifact after the run succeeds.
+
+The workflow uses the macOS Xcode iOS SDK, clones Theos, installs only `ldid` + `xz`, builds the rootless package and inspects the resulting `.deb` using macOS `ar`/`tar`.
+
+## Device data path
+
+```text
+/var/mobile/Library/NetCapture/
+├── capture.sqlite3
+├── capture.sqlite3-wal
+├── capture.sqlite3-shm
+├── Bodies/
+└── Runtime/ncap.sock
 ```
 
-The Makefile links `libellekit` but includes the standard Substrate API header (`<substrate.h>`), matching ElleKit's Substrate compatibility API.
+The daemon runs as `mobile`; runtime directories are `0700` and the socket is `0600`.
 
-## Runtime path
+## Expected completion-handler flow
 
-Current baseline uses `/var/mobile/Library/NetCapture`. For a production rootless/rootful package, replace `NCRuntimePaths` with package-specific runtime path/ownership policy rather than embedding `/var/jb` paths in business code.
+```text
+HELLO
+TX_BEGIN
+HOP_BEGIN
+[REQ_BODY ...]
+[REQ_BODY_END]
+HOP_RESPONSE
+[RESP_BODY ...]
+RESP_BODY_END
+HOP_END
+TX_END
+```
 
-## Injection filter
+Use `Tests/query.sql` to inspect the database.
 
-By default the tweak only loads in `com.example.NetCaptureTest`. Rebuild with your test bundle ID, or launch with the `NC_CAPTURE_BUNDLE` environment value during controlled testing.
+## Runtime dependency
 
-## Expected test
+The tweak compiles against Theos' Substrate link stub (`libsubstrate.tbd`) and the package declares `Depends: ellekit`. On-device ElleKit supplies the Substrate-compatible API used by `MSHookMessageEx`.
 
-A completion-handler request should produce:
+## Important validation boundary
 
-`HELLO -> TX_BEGIN -> HOP_BEGIN -> HOP_RESPONSE -> RESP_BODY -> RESP_BODY_END -> HOP_END -> TX_END`
-
-Then inspect `capture.sqlite3` with `Tests/query.sql` and the `Bodies/` directory.
-
-## Known validation boundary
-
-The generated project was source-audited in this environment, but a real iOS/Theos compile cannot be executed here because the container does not contain Apple's iOS SDK, Foundation headers, Theos, or the target ElleKit installation. Run `make` in your jailbreak build environment; the remaining work should be normal SDK/header/package-path adaptation rather than architecture work.
-
-## Phase 2.1 hardening
-
-This revision focuses on build/runtime blockers before expanding hook coverage:
-
-- Rootless package scheme and `/var/jb/usr/libexec/netcaptured` launch path.
-- launchd daemon runs as `mobile`, so the `0700` runtime directory and local socket remain reachable by injected app processes without using `0777` permissions.
-- `NCHookRegistry` materializes inherited methods before hooking and stores the original IMP per `(Class, SEL)`.
-- NSURLSession creation hook is installed on both the public base class and the current `sharedSession` runtime class; task `resume` is also installed on each observed task runtime class.
-- HTTP request bodies are chunked to `NC_MAX_PAYLOAD_SIZE` instead of attempting to send an oversized frame.
-- IPC client now has a bounded enqueue budget, FIFO partial-send handling, `EAGAIN` write-source continuation, and clears queued frames on connection loss. The target request thread never waits for daemon socket writes.
-- SQLite persistence uses `INSERT` inside an explicit transaction rather than `INSERT OR REPLACE`, avoiding accidental parent-row replacement/cascade semantics.
-
-This is still an NSURLSession completion-handler MVP. Delegate callbacks, redirects, TaskMetrics, download-file capture, streamed body proxies, NSURLConnection, CFNetwork observations/dedup and HAR are intentionally not claimed as compiled Phase 2.1 coverage yet; those should be added only after this build runs cleanly on-device.
-
-## GitHub Actions build (no local compiler required)
-
-This package includes `.github/workflows/build.yml`.
-
-1. Create a GitHub repository and upload the **contents of this folder** to the repository root.
-2. Open **Actions → Build NetCapture rootless deb → Run workflow**.
-3. Enter the target app's bundle ID (for example `com.example.app`).
-4. After the workflow finishes, open the workflow run and download the artifact named **NetCapture-rootless-deb**.
-5. The artifact contains the installable rootless `.deb` plus `package-contents.txt`.
-
-The workflow uses a macOS runner, Xcode's iOS SDK, Theos, and Theos' Substrate link stub. The package still declares an `ellekit` runtime dependency; ElleKit provides Substrate-compatible APIs on the device.
-
-If a build fails, download/copy the full **Build rootless package** log. It is the authoritative next input for SDK/source fixes.
+GitHub Actions is the authoritative compiler for this package. Source auditing can catch many correctness issues, but Unix-socket sandbox access, launchd bootstrap behavior, and actual ElleKit/runtime-class behavior require testing on the target jailbroken device.

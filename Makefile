@@ -1,4 +1,5 @@
 THEOS_PACKAGE_SCHEME = rootless
+THEOS_PLATFORM_DEB_COMPRESSION_TYPE = xz
 ARCHS = arm64 arm64e
 TARGET = iphone:clang:latest:15.0
 

@@ -8,7 +8,7 @@
 #include <errno.h>
 
 static const NSUInteger kNCMaxQueuedEstimate = 5 * 1024 * 1024;
-static const NSUInteger kNCFrameOverheadEstimate = 4096;
+static const NSUInteger kNCFrameOverheadEstimate = 64 * 1024;
 
 @interface NCOutgoingRequest : NSObject
 @property NCMessageType type;
@@ -83,7 +83,7 @@ static BOOL NCSendAllBlocking(int fd, NSData *d) {
     if (strlen(path.fileSystemRepresentation)>=sizeof(((struct sockaddr_un *)0)->sun_path)) return NO;
     int fd=socket(AF_UNIX,SOCK_STREAM,0);
     if (fd<0) return NO;
-    (void)fcntl(fd,F_SETFD,FD_CLOEXEC);
+    int fdFlags=fcntl(fd,F_GETFD,0); if(fdFlags>=0) (void)fcntl(fd,F_SETFD,fdFlags|FD_CLOEXEC);
 #ifdef SO_NOSIGPIPE
     int one=1; (void)setsockopt(fd,SOL_SOCKET,SO_NOSIGPIPE,&one,sizeof(one));
 #endif
@@ -126,10 +126,11 @@ static BOOL NCSendAllBlocking(int fd, NSData *d) {
 }
 
 - (BOOL)sendType:(NCMessageType)type metadata:(NSDictionary *)m payload:(NSData *)p {
-    if (p.length>NC_MAX_PAYLOAD_SIZE || !m) return NO;
+    if (p.length>NC_MAX_PAYLOAD_SIZE || !m || ![NSJSONSerialization isValidJSONObject:m]) return NO;
     NSUInteger estimate=p.length+kNCFrameOverheadEstimate;
+    if (estimate>kNCMaxQueuedEstimate) return NO;
     os_unfair_lock_lock(&_budgetLock);
-    if (_queuedEstimate+estimate>kNCMaxQueuedEstimate) { os_unfair_lock_unlock(&_budgetLock); return NO; }
+    if (_queuedEstimate>kNCMaxQueuedEstimate-estimate) { os_unfair_lock_unlock(&_budgetLock); return NO; }
     _queuedEstimate+=estimate;
     os_unfair_lock_unlock(&_budgetLock);
 

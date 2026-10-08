@@ -1,5 +1,6 @@
 #pragma once
 #import <Foundation/Foundation.h>
+#include <sys/types.h>
 @interface NCClientConnection : NSObject
 @property(nonatomic, copy, readonly) NSString *identifier;
 @property(nonatomic, copy, nullable) NSString *sessionID;

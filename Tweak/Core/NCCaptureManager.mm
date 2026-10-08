@@ -5,77 +5,139 @@
 #import <os/lock.h>
 
 @interface NCClientRecord : NSObject
-@property(nonatomic, copy) NSString *tx, *hop;
+@property(nonatomic, copy) NSString *transactionID;
+@property(nonatomic, copy) NSString *hopID;
 @property(nonatomic, strong) NSURLRequest *request;
-@property BOOL begun, ended;
+@property(nonatomic, assign) BOOL begun;
+@property(nonatomic, assign) BOOL ended;
+@property(nonatomic, assign) BOOL cancelRequested;
 @end
 @implementation NCClientRecord @end
 
 @interface NCCaptureManager () {
     os_unfair_lock _lock;
-    NSMapTable *_map;
+    NSMapTable<NSURLSessionTask *, NCClientRecord *> *_records;
 }
 @end
 
 @implementation NCCaptureManager
-+ (instancetype)shared { static id x; static dispatch_once_t once; dispatch_once(&once, ^{ x=[self new]; }); return x; }
-- (instancetype)init { if ((self=[super init])) { _lock=OS_UNFAIR_LOCK_INIT; _map=[NSMapTable weakToStrongObjectsMapTable]; } return self; }
+
++ (instancetype)shared {
+    static NCCaptureManager *manager;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        manager = [[NCCaptureManager alloc] init];
+    });
+    return manager;
+}
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _lock = OS_UNFAIR_LOCK_INIT;
+        _records = [NSMapTable weakToStrongObjectsMapTable];
+    }
+    return self;
+}
 
 - (void)observeCreatedTask:(NSURLSessionTask *)task request:(NSURLRequest *)request {
     if (!task || !request) return;
+
     os_unfair_lock_lock(&_lock);
-    if (![_map objectForKey:task]) {
-        NCClientRecord *r=[NCClientRecord new];
-        r.tx=[NSUUID UUID].UUIDString;
-        r.hop=[NSUUID UUID].UUIDString;
-        r.request=request;
-        [_map setObject:r forKey:task];
+    if (![_records objectForKey:task]) {
+        NCClientRecord *record = [[NCClientRecord alloc] init];
+        record.transactionID = NSUUID.UUID.UUIDString;
+        record.hopID = NSUUID.UUID.UUIDString;
+        record.request = [request copy];
+        [_records setObject:record forKey:task];
     }
     os_unfair_lock_unlock(&_lock);
 }
 
 - (void)taskWillResume:(NSURLSessionTask *)task {
-    NCClientRecord *r=nil;
+    if (!task) return;
+
+    NCClientRecord *record = nil;
     os_unfair_lock_lock(&_lock);
-    r=[_map objectForKey:task];
-    if (r && !r.begun) r.begun=YES; else r=nil;
+    record = [_records objectForKey:task];
+    if (record && !record.begun && !record.ended) record.begun = YES;
+    else record = nil;
     os_unfair_lock_unlock(&_lock);
-    if (!r) return;
+    if (!record) return;
 
-    NSTimeInterval now=[NSDate date].timeIntervalSince1970;
-    [[NCIPCClient shared] sendType:NCMessageTransactionBegin metadata:@{
-        @"transaction":r.tx, @"source":@(NCCaptureSourceNSURLSession),
-        @"task_id":@(task.taskIdentifier), @"started_at":@(now)
-    } payload:nil];
-    [[NCIPCClient shared] sendType:NCMessageHopBegin metadata:@{
-        @"transaction":r.tx, @"hop":r.hop, @"index":@0, @"started_at":@(now),
-        @"method":r.request.HTTPMethod?:@"GET", @"url":r.request.URL.absoluteString?:@"",
-        @"headers":NCHeaderJSONList(NCHeaderListFromDictionary(r.request.allHTTPHeaderFields?:@{}))
-    } payload:nil];
-
-    NSData *b=r.request.HTTPBody;
-    if (b.length) {
-        uint64_t offset=0, dropped=0;
-        while (offset < b.length) {
-            NSUInteger n=(NSUInteger)MIN((uint64_t)NC_MAX_PAYLOAD_SIZE, (uint64_t)b.length-offset);
-            NSData *chunk=[b subdataWithRange:NSMakeRange((NSUInteger)offset,n)];
-            BOOL queued=[[NCIPCClient shared] sendType:NCMessageRequestBody metadata:@{
-                @"transaction":r.tx,@"hop":r.hop,@"attempt":@1,@"offset":@(offset)
-            } payload:chunk];
-            if (!queued) dropped += n;
-            offset += n;
-        }
-        [[NCIPCClient shared] sendType:NCMessageRequestBodyEnd metadata:@{
-            @"transaction":r.tx,@"hop":r.hop,@"attempt":@1,@"observed":@(b.length),
-            @"ipc_dropped":@(dropped),@"eof":@YES
-        } payload:nil];
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    [[NCIPCClient shared] sendType:NCMessageTransactionBegin
+                          metadata:@{
+        @"transaction": record.transactionID,
+        @"source": @(NCCaptureSourceNSURLSession),
+        @"task_id": @(task.taskIdentifier),
+        @"started_at": @(now)
     }
+                           payload:nil];
+
+    [[NCIPCClient shared] sendType:NCMessageHopBegin
+                          metadata:@{
+        @"transaction": record.transactionID,
+        @"hop": record.hopID,
+        @"index": @0,
+        @"started_at": @(now),
+        @"method": record.request.HTTPMethod ?: @"GET",
+        @"url": record.request.URL.absoluteString ?: @"",
+        @"headers": NCHeaderJSONList(NCHeaderListFromDictionary(record.request.allHTTPHeaderFields ?: @{}))
+    }
+                           payload:nil];
+
+    NSData *body = record.request.HTTPBody;
+    if (!body.length) return;
+
+    uint64_t offset = 0;
+    uint64_t dropped = 0;
+    while (offset < body.length) {
+        NSUInteger length = (NSUInteger)MIN((uint64_t)NC_MAX_PAYLOAD_SIZE, (uint64_t)body.length - offset);
+        NSData *chunk = [body subdataWithRange:NSMakeRange((NSUInteger)offset, length)];
+        BOOL queued = [[NCIPCClient shared] sendType:NCMessageRequestBody
+                                            metadata:@{
+            @"transaction": record.transactionID,
+            @"hop": record.hopID,
+            @"attempt": @1,
+            @"offset": @(offset)
+        }
+                                             payload:chunk];
+        if (!queued) dropped += length;
+        offset += length;
+    }
+
+    [[NCIPCClient shared] sendType:NCMessageRequestBodyEnd
+                          metadata:@{
+        @"transaction": record.transactionID,
+        @"hop": record.hopID,
+        @"attempt": @1,
+        @"observed": @(body.length),
+        @"ipc_dropped": @(dropped),
+        @"eof": @YES
+    }
+                           payload:nil];
 }
 
-static NCFailureCategory NCCategory(NSError *e) {
-    if (!e) return NCFailureNone;
-    if (![e.domain isEqualToString:NSURLErrorDomain]) return NCFailureUnknown;
-    switch (e.code) {
+- (void)taskDidRequestCancel:(NSURLSessionTask *)task {
+    if (!task) return;
+    os_unfair_lock_lock(&_lock);
+    NCClientRecord *record = [_records objectForKey:task];
+    if (record && !record.ended) {
+        record.cancelRequested = YES;
+        if (!record.begun) {
+            record.ended = YES;
+            [_records removeObjectForKey:task];
+        }
+    }
+    os_unfair_lock_unlock(&_lock);
+}
+
+static NCFailureCategory NCFailureCategoryForError(NSError *error) {
+    if (!error) return NCFailureNone;
+    if (![error.domain isEqualToString:NSURLErrorDomain]) return NCFailureUnknown;
+
+    switch (error.code) {
         case NSURLErrorCancelled: return NCFailureCancelled;
         case NSURLErrorTimedOut: return NCFailureTimeout;
         case NSURLErrorCannotFindHost:
@@ -83,13 +145,19 @@ static NCFailureCategory NCCategory(NSError *e) {
         case NSURLErrorCannotConnectToHost:
         case NSURLErrorNetworkConnectionLost: return NCFailureConnection;
         case NSURLErrorNotConnectedToInternet: return NCFailureOffline;
-        case NSURLErrorSecureConnectionFailed: return NCFailureTLS;
-        default: return NCFailureUnknown;
+        case NSURLErrorSecureConnectionFailed:
+        case NSURLErrorServerCertificateHasBadDate:
+        case NSURLErrorServerCertificateUntrusted:
+        case NSURLErrorServerCertificateHasUnknownRoot:
+        case NSURLErrorServerCertificateNotYetValid:
+            return NCFailureTLS;
+        default:
+            return NCFailureUnknown;
     }
 }
 
-static NSString *NCTermination(NSError *e) {
-    switch (NCCategory(e)) {
+static NSString *NCTerminationReasonForError(NSError *error) {
+    switch (NCFailureCategoryForError(error)) {
         case NCFailureNone: return @"normal";
         case NCFailureCancelled: return @"cancelled";
         case NCFailureTimeout: return @"timeout";
@@ -101,53 +169,95 @@ static NSString *NCTermination(NSError *e) {
     }
 }
 
-- (void)task:(NSURLSessionTask *)task completionData:(NSData *)data response:(NSURLResponse *)resp error:(NSError *)err {
-    NCClientRecord *r=nil;
+- (void)task:(NSURLSessionTask *)task
+ completionData:(NSData *)data
+       response:(NSURLResponse *)response
+          error:(NSError *)error {
+    if (!task) return;
+
+    NCClientRecord *record = nil;
+    BOOL cancelRequested = NO;
     os_unfair_lock_lock(&_lock);
-    r=[_map objectForKey:task];
-    if (!r || r.ended) { os_unfair_lock_unlock(&_lock); return; }
-    r.ended=YES;
-    [_map removeObjectForKey:task];
+    record = [_records objectForKey:task];
+    if (!record || record.ended) {
+        os_unfair_lock_unlock(&_lock);
+        return;
+    }
+    record.ended = YES;
+    cancelRequested = record.cancelRequested;
+    [_records removeObjectForKey:task];
     os_unfair_lock_unlock(&_lock);
-    if (!r.begun) return;
 
-    if (resp) {
-        NSInteger status=[resp isKindOfClass:NSHTTPURLResponse.class]?[(NSHTTPURLResponse*)resp statusCode]:0;
-        NSDictionary *h=[resp isKindOfClass:NSHTTPURLResponse.class]?[(NSHTTPURLResponse*)resp allHeaderFields]:@{};
-        [[NCIPCClient shared] sendType:NCMessageHopResponse metadata:@{
-            @"transaction":r.tx,@"hop":r.hop,@"status":@(status),
-            @"headers":NCHeaderJSONList(NCHeaderListFromDictionary(h?:@{}))
-        } payload:nil];
-    }
+    if (!record.begun) return;
 
-    uint64_t dropped=0;
-    if (data.length) {
-        uint64_t off=0;
-        while (off<data.length) {
-            NSUInteger n=(NSUInteger)MIN((uint64_t)NC_MAX_PAYLOAD_SIZE,(uint64_t)data.length-off);
-            NSData *c=[data subdataWithRange:NSMakeRange((NSUInteger)off,n)];
-            BOOL queued=[[NCIPCClient shared] sendType:NCMessageResponseBody metadata:@{
-                @"transaction":r.tx,@"hop":r.hop,@"offset":@(off)
-            } payload:c];
-            if (!queued) dropped += n;
-            off += n;
+    if (response) {
+        NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class]
+            ? ((NSHTTPURLResponse *)response).statusCode : 0;
+        NSDictionary *headers = [response isKindOfClass:NSHTTPURLResponse.class]
+            ? ((NSHTTPURLResponse *)response).allHeaderFields : @{};
+
+        [[NCIPCClient shared] sendType:NCMessageHopResponse
+                              metadata:@{
+            @"transaction": record.transactionID,
+            @"hop": record.hopID,
+            @"status": @(status),
+            @"headers": NCHeaderJSONList(NCHeaderListFromDictionary(headers ?: @{}))
         }
+                               payload:nil];
     }
-    [[NCIPCClient shared] sendType:NCMessageResponseBodyEnd metadata:@{
-        @"transaction":r.tx,@"hop":r.hop,@"observed":@(data.length),
-        @"ipc_dropped":@(dropped),@"eof":@(err==nil)
-    } payload:nil];
 
-    NSTimeInterval now=[NSDate date].timeIntervalSince1970;
-    [[NCIPCClient shared] sendType:NCMessageHopEnd metadata:@{
-        @"transaction":r.tx,@"hop":r.hop,@"ended_at":@(now)
-    } payload:nil];
-    NSMutableDictionary *m=[@{
-        @"transaction":r.tx,@"ended_at":@(now),
-        @"cancel_requested":@(err.code==NSURLErrorCancelled),
-        @"failure_category":@(NCCategory(err)),@"termination_reason":NCTermination(err)
+    uint64_t dropped = 0;
+    uint64_t offset = 0;
+    while (offset < data.length) {
+        NSUInteger length = (NSUInteger)MIN((uint64_t)NC_MAX_PAYLOAD_SIZE, (uint64_t)data.length - offset);
+        NSData *chunk = [data subdataWithRange:NSMakeRange((NSUInteger)offset, length)];
+        BOOL queued = [[NCIPCClient shared] sendType:NCMessageResponseBody
+                                            metadata:@{
+            @"transaction": record.transactionID,
+            @"hop": record.hopID,
+            @"offset": @(offset)
+        }
+                                             payload:chunk];
+        if (!queued) dropped += length;
+        offset += length;
+    }
+
+    [[NCIPCClient shared] sendType:NCMessageResponseBodyEnd
+                          metadata:@{
+        @"transaction": record.transactionID,
+        @"hop": record.hopID,
+        @"observed": @(data.length),
+        @"ipc_dropped": @(dropped),
+        @"eof": @(error == nil)
+    }
+                           payload:nil];
+
+    NSTimeInterval now = NSDate.date.timeIntervalSince1970;
+    [[NCIPCClient shared] sendType:NCMessageHopEnd
+                          metadata:@{
+        @"transaction": record.transactionID,
+        @"hop": record.hopID,
+        @"ended_at": @(now)
+    }
+                           payload:nil];
+
+    NSMutableDictionary *metadata = [@{
+        @"transaction": record.transactionID,
+        @"ended_at": @(now),
+        @"cancel_requested": @(cancelRequested),
+        @"failure_category": @(NCFailureCategoryForError(error)),
+        @"termination_reason": NCTerminationReasonForError(error)
     } mutableCopy];
-    if (err) m[@"error"]=@{@"domain":err.domain?:@"",@"code":@(err.code),@"description":err.localizedDescription?:@""};
-    [[NCIPCClient shared] sendType:NCMessageTransactionEnd metadata:m payload:nil];
+
+    if (error) {
+        metadata[@"error"] = @{
+            @"domain": error.domain ?: @"",
+            @"code": @(error.code),
+            @"description": error.localizedDescription ?: @""
+        };
+    }
+
+    [[NCIPCClient shared] sendType:NCMessageTransactionEnd metadata:metadata payload:nil];
 }
+
 @end
