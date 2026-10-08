@@ -3,10 +3,14 @@ name: Build NetCapture rootless deb
 on:
   workflow_dispatch:
     inputs:
-      bundle_id:
-        description: "Target app bundle ID to inject into"
-        required: true
-        default: "com.example.NetCaptureTest"
+      bundle_ids:
+        description: "Comma-separated Bundle IDs (optional)"
+        required: false
+        default: "com.apple.locationd"
+      executables:
+        description: "Comma-separated executable names (optional)"
+        required: false
+        default: "imagent,locationd"
   push:
     branches: [ "main", "master" ]
   pull_request:
@@ -21,8 +25,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build dependencies
-        run: |
-          brew install ldid xz
+        run: brew install ldid xz
 
       - name: Install Theos
         run: |
@@ -30,12 +33,22 @@ jobs:
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
           echo "$HOME/theos/bin" >> "$GITHUB_PATH"
 
-      - name: Configure target bundle
+      - name: Configure capture targets
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
-          TARGET_BUNDLE: ${{ inputs.bundle_id }}
+          TARGET_BUNDLES: ${{ inputs.bundle_ids }}
+          TARGET_EXECUTABLES: ${{ inputs.executables }}
         run: |
-          python3 Scripts/set_bundle_id.py "$TARGET_BUNDLE"
+          python3 Scripts/configure_targets.py \
+            --bundles "$TARGET_BUNDLES" \
+            --executables "$TARGET_EXECUTABLES" \
+            --write-config
+          cat Config/targets.json
+          cat NetCapture.plist
+
+      - name: Generate checked-in defaults
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: python3 Scripts/configure_targets.py
 
       - name: Preflight
         run: |
@@ -43,12 +56,14 @@ jobs:
           test -f Makefile
           test -f control
           test -f NetCapture.plist
+          test -f Config/targets.json
+          test -f Tweak/Generated/NCTargetConfig.h
           test -f "$THEOS/vendor/include/substrate.h"
           find "$THEOS/vendor/lib" -name 'libsubstrate.tbd' -print -quit | grep -q .
           /usr/libexec/PlistBuddy -c Print Packaging/com.netcapture.daemon.plist >/dev/null
+          python3 Scripts/configure_targets.py
           xcodebuild -version
           clang --version | head -n 1
-          make --version | head -n 1
 
       - name: Build rootless package
         run: |
@@ -63,38 +78,25 @@ jobs:
           DEB="$(find packages -maxdepth 1 -name '*.deb' -type f | head -n 1)"
           test -n "$DEB"
           echo "Built: $DEB"
-
           rm -rf package-inspect
           mkdir -p package-inspect/control package-inspect/data
           cd package-inspect
-
-          echo "Debian archive members:"
           ar -t "../$DEB"
           ar -x "../$DEB"
-
           CONTROL_TAR="$(find . -maxdepth 1 -type f -name 'control.tar.*' | head -n 1)"
           DATA_TAR="$(find . -maxdepth 1 -type f -name 'data.tar.*' | head -n 1)"
-          test -n "$CONTROL_TAR"
-          test -n "$DATA_TAR"
-          echo "Control archive: $CONTROL_TAR"
-          echo "Data archive: $DATA_TAR"
-
-          # macOS bsdtar/libarchive auto-detects gzip/xz/bzip2/zstd by content.
+          test -n "$CONTROL_TAR"; test -n "$DATA_TAR"
           tar -xf "$CONTROL_TAR" -C control
           tar -xf "$DATA_TAR" -C data
-
           grep -qx 'Architecture: iphoneos-arm64' control/control
           find data -type f | sort | tee ../package-contents.txt
           find data -type f -name 'NetCapture.dylib' | grep -q .
+          find data -type f -name 'NetCapture.plist' | grep -q .
           find data -type f -name 'netcaptured' | grep -q .
           find data -type f -name 'com.netcapture.daemon.plist' | grep -q .
-
           TWEAK="$(find data -type f -name 'NetCapture.dylib' | head -n 1)"
           DAEMON="$(find data -type f -name 'netcaptured' | head -n 1)"
-          test -n "$TWEAK"
-          test -n "$DAEMON"
-          file "$TWEAK"
-          file "$DAEMON"
+          file "$TWEAK"; file "$DAEMON"
           lipo -info "$TWEAK" || true
           lipo -info "$DAEMON" || true
 
@@ -105,6 +107,8 @@ jobs:
           path: |
             packages/*.deb
             package-contents.txt
+            Config/targets.json
+            NetCapture.plist
             AUDIT.md
           if-no-files-found: error
           retention-days: 14
