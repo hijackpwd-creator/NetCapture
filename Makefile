@@ -5,6 +5,9 @@ TARGET = iphone:clang:latest:15.0
 
 include $(THEOS)/makefiles/common.mk
 
+before-all::
+	$(ECHO_NOTHING)python3 Scripts/configure_targets.py$(ECHO_END)
+
 TWEAK_NAME = NetCapture
 NetCapture_FILES = \
     Tweak/Tweak.xm \

@@ -68,3 +68,12 @@ All public Objective-C headers that import Foundation are now wrapped in `NS_ASS
 - Replaced GNU-style `typeof(...)` weak/strong declarations in `.mm` files with explicit Objective-C class types.
 - Added explicit `(const uint8_t *)` conversions for `NSData.bytes`, because Objective-C++ does not permit implicit `const void *` to byte-pointer conversion.
 - Applied the same fixes to Tweak IPC, daemon IPC/server, and body writer rather than patching only the first compiler error.
+
+
+## 0.2.5 package-inspection compatibility pass
+
+- GitHub Actions no longer assumes `control.tar.xz` / `data.tar.xz`.
+- The workflow enumerates Debian ar members and discovers `control.tar.*` / `data.tar.*` dynamically.
+- Extraction uses macOS bsdtar/libarchive compression auto-detection.
+- The build artifact is considered successful before inspection; inspection now validates contents without tying correctness to a specific compressor.
+- Added `lipo -info` diagnostics for the tweak and daemon to verify arm64/arm64e slices on the iPhone XS target.

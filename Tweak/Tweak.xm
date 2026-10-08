@@ -1,4 +1,26 @@
 #import <Foundation/Foundation.h>
 #import "Hook/NCURLSessionHook.h"
-static BOOL NCShouldLoad(void){NSString*p=[NSProcessInfo processInfo].processName?:@"";if([p isEqualToString:@"netcaptured"])return NO;NSString*b=[NSBundle mainBundle].bundleIdentifier?:@"";NSString*allow=[[[NSProcessInfo processInfo] environment] objectForKey:@"NC_CAPTURE_BUNDLE"];if(allow.length)return [b isEqualToString:allow];return [b isEqualToString:@"com.example.NetCaptureTest"];}
-%ctor { @autoreleasepool { if(NCShouldLoad()) NCInstallURLSessionHooks(); } }
+#import "Generated/NCTargetConfig.h"
+
+static BOOL NCStringInConfiguredList(NSString *value, NSArray<NSString *> *values) {
+    if (!value.length) return NO;
+    return [values containsObject:value];
+}
+
+static BOOL NCShouldLoad(void) {
+    NSString *process = NSProcessInfo.processInfo.processName ?: @"";
+    if ([process isEqualToString:@"netcaptured"]) return NO;
+
+    NSString *bundle = NSBundle.mainBundle.bundleIdentifier ?: @"";
+    BOOL executableMatch = NCStringInConfiguredList(process, NCCaptureConfiguredExecutables());
+    BOOL bundleMatch = NCStringInConfiguredList(bundle, NCCaptureConfiguredBundles());
+    return executableMatch || bundleMatch;
+}
+
+%ctor {
+    @autoreleasepool {
+        if (NCShouldLoad()) {
+            NCInstallURLSessionHooks();
+        }
+    }
+}

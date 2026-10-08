@@ -1,0 +1,14 @@
+{
+  "version": "0.2.6",
+  "target_config": {
+    "single_source": "Config/targets.json",
+    "supports_bundles": true,
+    "supports_executables": true,
+    "match_semantics": "bundle OR executable",
+    "always_denied": ["netcaptured"]
+  },
+  "default_targets": {
+    "bundles": ["com.apple.locationd"],
+    "executables": ["imagent", "locationd"]
+  }
+}

@@ -69,3 +69,18 @@ The tweak compiles against Theos' Substrate link stub (`libsubstrate.tbd`) and t
 ## Important validation boundary
 
 GitHub Actions is the authoritative compiler for this package. Source auditing can catch many correctness issues, but Unix-socket sandbox access, launchd bootstrap behavior, and actual ElleKit/runtime-class behavior require testing on the target jailbroken device.
+
+## Target configuration (0.2.6+)
+
+Capture targets are configured in one place: `Config/targets.json`.
+
+```json
+{
+  "bundles": ["com.apple.locationd"],
+  "executables": ["imagent", "locationd"]
+}
+```
+
+Run `python3 Scripts/configure_targets.py` to regenerate both the Substrate/ElleKit `NetCapture.plist` filter and the Tweak-side secondary matcher. A process is accepted when either its bundle identifier or executable name matches. `netcaptured` is always denied.
+
+GitHub Actions exposes `bundle_ids` and `executables` as comma-separated workflow inputs and writes them back to `Config/targets.json` before building.

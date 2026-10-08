@@ -1,0 +1,9 @@
+{
+  "bundles": [
+    "com.apple.locationd"
+  ],
+  "executables": [
+    "imagent",
+    "locationd"
+  ]
+}
