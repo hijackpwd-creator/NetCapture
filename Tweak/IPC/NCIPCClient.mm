@@ -67,7 +67,7 @@ static BOOL NCSetNonBlocking(int fd) {
 }
 
 static BOOL NCSendAllBlocking(int fd, NSData *d) {
-    const uint8_t *b=d.bytes; NSUInteger off=0;
+    const uint8_t *b = (const uint8_t *)d.bytes; NSUInteger off=0;
     while (off<d.length) {
         ssize_t n=send(fd,b+off,d.length-off,0);
         if (n>0) { off+=(NSUInteger)n; continue; }
@@ -102,8 +102,8 @@ static BOOL NCSendAllBlocking(int fd, NSData *d) {
 - (void)ensureWriteSourceLocked {
     if (_writeSource || _fd<0) return;
     _writeSource=dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE,_fd,0,_q);
-    __weak typeof(self) w=self;
-    dispatch_source_set_event_handler(_writeSource, ^{ [w drainLocked]; });
+    __weak NCIPCClient *weakSelf = self;
+    dispatch_source_set_event_handler(_writeSource, ^{ [weakSelf drainLocked]; });
     dispatch_resume(_writeSource);
 }
 
@@ -111,7 +111,7 @@ static BOOL NCSendAllBlocking(int fd, NSData *d) {
     if (_fd<0) return;
     while (_frames.count) {
         NCPendingWireFrame *f=_frames.firstObject;
-        const uint8_t *b=f.data.bytes;
+        const uint8_t *b = (const uint8_t *)f.data.bytes;
         while (f.offset<f.data.length) {
             ssize_t n=send(_fd,b+f.offset,f.data.length-f.offset,MSG_DONTWAIT);
             if (n>0) { f.offset+=(NSUInteger)n; continue; }

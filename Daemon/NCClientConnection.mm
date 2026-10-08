@@ -42,7 +42,7 @@ static const NSUInteger kNCCompactThreshold = 256U * 1024U;
             [self closeLocked];
             return;
         }
-        __weak typeof(self) weakSelf = self;
+        __weak NCClientConnection *weakSelf = self;
         dispatch_source_set_event_handler(self->_readSource, ^{
             [weakSelf handleReadableLocked];
         });

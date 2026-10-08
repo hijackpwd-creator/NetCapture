@@ -88,7 +88,7 @@ static BOOL NCConfigureSocketFD(int fd) {
             return;
         }
 
-        __weak typeof(self) weakSelf = self;
+        __weak NCIPCServer *weakSelf = self;
         dispatch_source_set_event_handler(self->_acceptSource, ^{
             [weakSelf acceptLoopLocked];
         });
@@ -126,13 +126,13 @@ static BOOL NCConfigureSocketFD(int fd) {
             connection.peerUID = uid;
             connection.peerGID = gid;
 
-            __weak typeof(self) weakSelf = self;
+            __weak NCIPCServer *weakSelf = self;
             connection.closeHandler = ^(NCClientConnection *closed) {
-                __strong typeof(weakSelf) self = weakSelf;
-                if (!self) return;
-                dispatch_async(self->_queue, ^{
-                    if (self->_clients[closed.identifier] == closed) {
-                        [self->_clients removeObjectForKey:closed.identifier];
+                __strong NCIPCServer *strongSelf = weakSelf;
+                if (!strongSelf) return;
+                dispatch_async(strongSelf->_queue, ^{
+                    if (strongSelf->_clients[closed.identifier] == closed) {
+                        [strongSelf->_clients removeObjectForKey:closed.identifier];
                     }
                 });
             };

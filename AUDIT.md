@@ -61,3 +61,10 @@ Delegate callbacks, redirects, `NSURLSessionTaskMetrics`, download temporary-fil
 ## 0.2.3 Xcode 26 nullability audit
 
 All public Objective-C headers that import Foundation are now wrapped in `NS_ASSUME_NONNULL_BEGIN/END`. APIs that can legitimately be nil are explicitly annotated (`nullable` / `_Nullable`), including completion payloads, error objects, optional error-out parameters, session IDs/body paths, close handlers, and nullable original IMP lookups. Matching implementation signatures were updated where useful to avoid header/implementation drift under Xcode 26 diagnostics.
+
+
+## 0.2.4 Xcode 15/Objective-C++ compatibility pass
+
+- Replaced GNU-style `typeof(...)` weak/strong declarations in `.mm` files with explicit Objective-C class types.
+- Added explicit `(const uint8_t *)` conversions for `NSData.bytes`, because Objective-C++ does not permit implicit `const void *` to byte-pointer conversion.
+- Applied the same fixes to Tweak IPC, daemon IPC/server, and body writer rather than patching only the first compiler error.

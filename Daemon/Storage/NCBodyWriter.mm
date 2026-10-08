@@ -80,7 +80,7 @@ static const uint64_t kNCBodyStorageLimit = 32ULL * 1024ULL * 1024ULL;
 
     uint64_t remaining = kNCBodyStorageLimit - state.storedBytes;
     NSUInteger wanted = (NSUInteger)MIN(remaining, (uint64_t)payload.length);
-    const uint8_t *bytes = payload.bytes;
+    const uint8_t *bytes = (const uint8_t *)payload.bytes;
     NSUInteger written = 0;
 
     while (written < wanted) {

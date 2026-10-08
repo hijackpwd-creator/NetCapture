@@ -1,6 +1,6 @@
 Package: com.example.netcapture
 Name: NetCapture
-Version: 0.2.3
+Version: 0.2.4
 Architecture: iphoneos-arm64
 Description: Local NSURLSession capture/logger for authorized debugging.
 Maintainer: Local
